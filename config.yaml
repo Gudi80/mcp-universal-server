@@ -1,0 +1,77 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  name: "mcp-universal-server"
+  version: "0.1.0"
+  description: "Remote MCP server for multi-agent Claude Code environments"
+
+enabled_plugins:
+  - "core.echo"
+  - "core.sum"
+  - "llm.query"
+  - "about.server"
+  - "about.policies"
+  - "prompt.review_pr"
+  - "prompt.tool_usage"
+
+agents:
+  agent-alpha:
+    token: "${AGENT_ALPHA_TOKEN}"
+    tenant_id: "team-a"
+    allowed_tools:
+      - "core.echo"
+      - "core.sum"
+    allowed_capabilities: []
+    egress_allowlist: []
+    max_payload_bytes: 1048576
+    timeout_seconds: 30
+    concurrency: 5
+    rate_limit: 60
+    max_tokens_per_request: 4096
+    max_cost_per_day: 10.0
+
+  agent-beta:
+    token: "${AGENT_BETA_TOKEN}"
+    tenant_id: "team-b"
+    allowed_tools:
+      - "core.echo"
+      - "core.sum"
+      - "llm.query"
+    allowed_capabilities:
+      - "network:outbound"
+      - "llm:query"
+    egress_allowlist:
+      - "api.openai.com"
+      - "api.anthropic.com"
+    max_payload_bytes: 1048576
+    timeout_seconds: 60
+    concurrency: 3
+    rate_limit: 30
+    max_tokens_per_request: 8192
+    max_cost_per_day: 25.0
+
+llm:
+  providers:
+    openai:
+      api_key: "${OPENAI_API_KEY}"
+      base_url: "https://api.openai.com/v1"
+      allowed_models:
+        - "gpt-4o"
+        - "gpt-4o-mini"
+    anthropic:
+      api_key: "${ANTHROPIC_API_KEY}"
+      base_url: "https://api.anthropic.com/v1"
+      allowed_models:
+        - "claude-sonnet-4-20250514"
+        - "claude-haiku-4-5-20251001"
+    local:
+      api_key: ""
+      base_url: "http://localhost:11434"
+      allowed_models:
+        - "llama3"
+        - "mistral"
+
+redact_patterns:
+  - '(?i)(sk-[a-zA-Z0-9]{20,})'
+  - '(?i)(Bearer\s+[a-zA-Z0-9._\-]+)'
+  - '(?i)(api[_\-]?key\s*[:=]\s*\S+)'
