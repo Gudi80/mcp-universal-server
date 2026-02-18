@@ -4,92 +4,61 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**mcp-universal-server** — a remote MCP (Model Context Protocol) server using Streamable HTTP transport, designed for multiple Claude Code agents on a LAN/VPN. Runs on a single Proxmox VM. Priority: security (hard guardrails), multi-tenancy, audit.
-
-Full requirements spec: `req/mcp.md`
-
-## Tech Stack
-
-- Python 3.11+, FastAPI + Uvicorn, MCP Python SDK (Streamable HTTP, NOT SSE)
-- Pydantic for config and tool input validation
-- pytest for tests
-- Structured JSON logging to stdout
-- Docker deployment (Dockerfile + docker-compose.yml)
-
-## Architecture
-
-Two-layer separation: **core** (business logic) vs **transport** (FastAPI `/mcp` adapter).
-
-### Core Layer (`src/core/`)
-- **Plugin registry/loader** — central registration, config-driven enable/disable
-- **Policy engine** — middleware on every tool-call: allowlists per agent/tenant, capability gating, network egress allowlist, rate/size/timeout limits, LLM budget tracking, secret/PII redaction in logs, deny reasons
-- **Auth** — Bearer token → (agent_id, tenant_id) mapping from config file; reject unauthenticated requests
-- **Audit** — structured logging of all tool calls and policy decisions
-- **Config** — Pydantic models for all configuration
-
-### Plugin System (`src/plugins/`)
-Each plugin is a module with a **manifest** (name, title, description, capabilities like `network:outbound`, `llm:query`, `fs:read`, `db:read`) and a **handler**. Plugins provide MCP tools, resources, and prompts.
-
-Built-in plugins:
-- **Tools:** `core.echo`, `core.sum`, `llm.query` (LLM router)
-- **Resources:** `about://server`, `about://policies` (effective config without secrets)
-- **Prompts:** `review_pr`, `tool_usage`
-
-### LLM Router (`src/plugins/llm_query/providers/`)
-Common provider interface with implementations: `openai.py`, `anthropic.py`, `local.py`. Per-provider model allowlist in config. Egress allowlist must include provider domains. Input size limits with heuristic to block "repo paste" attempts.
+**mcp-universal-server** — a remote MCP (Model Context Protocol) server using Streamable HTTP transport, designed for multiple Claude Code agents on a LAN/VPN. Priority: security (hard guardrails), multi-tenancy, audit. Full requirements spec (in Polish): `req/mcp.md`.
 
 ## Commands
 
 ```bash
-# Install dependencies
-pip install -e ".[dev]"
-
-# Run server
-uvicorn src.transport.app:get_app --factory --host 0.0.0.0 --port 8000
-
-# Run all tests
-pytest
-
-# Run single test
-pytest tests/test_policy.py::test_capability_gating -v
-
-# Docker
-docker compose up --build
+pip install -e ".[dev]"                                # install
+uvicorn src.transport.app:get_app --factory --host 0.0.0.0 --port 8000  # run server
+pytest                                                 # all tests
+pytest tests/test_policy.py::test_capability_gating -v # single test
+docker compose up --build                              # docker
 ```
+
+## Architecture
+
+Two layers: **core** (`src/core/`) has no MCP SDK imports; **transport** (`src/transport/`) is the only place importing `FastMCP`.
+
+### Request Flow
+
+```
+HTTP POST /mcp (Authorization: Bearer <token>)
+  → BearerAuthMiddleware (src/transport/middleware.py)
+    → AuthService.resolve(token) → AgentIdentity
+      → contextvars.ContextVar("current_agent").set(identity)
+        → FastMCP (stateless_http=True) dispatches tool call
+          → wrapper function in app.py: current_agent.get() → PolicyEngine.check_tool_call() → plugin.execute()
+```
+
+Each tool is registered via `_make_tool_wrapper()` in `src/transport/app.py`, which synthesizes an `inspect.Signature` from the plugin's Pydantic `input_model()` so FastMCP generates the correct JSON schema. This wrapper enforces policy before every execution — there is no bypass path.
+
+### Plugin System
+
+Plugins implement ABCs from `src/plugins/_base.py` (`ToolPlugin`, `ResourcePlugin`, `PromptPlugin`). Each plugin module exposes a `create_plugin(**kwargs)` factory. Registration requires two steps:
+1. Add module path to `PLUGIN_MODULES` dict in `src/core/registry.py`
+2. Add plugin name to `enabled_plugins` list in `config.yaml`
+
+Resources use `FunctionResource` (not the `@mcp.resource` decorator) to avoid URI parameter validation issues. Prompts use `Prompt.from_function()` then `mcp.add_prompt(prompt_obj)`.
+
+### Policy Engine (`src/core/policy.py`)
+
+Checks on every tool call: tool allowlist, capability gating (`tool.capabilities ⊆ agent.allowed_capabilities`), payload size, rate limit (sliding window), LLM budget (daily cost cap). All denials return a `PolicyDecision` with human-readable `reasons` list.
+
+### LLM Providers
+
+Providers in `src/plugins/llm_query/providers/` use raw `httpx` via `GuardedHttpClient` (not the `openai`/`anthropic` SDK HTTP clients) to ensure egress allowlist enforcement. Input guard (`input_guard.py`) has a 100KB hard limit plus heuristics for repo-paste detection.
 
 ## Configuration
 
-- `config.yaml` (or JSON) + ENV overrides for secrets (API keys etc.)
-- `.env.example` for reference
-- Secure defaults: network egress OFF, only `core.echo` and `core.sum` enabled for the example agent
-
-### Connecting Claude Code
-
-```bash
-claude mcp add --transport http <server-url>/mcp --header "Authorization: Bearer <token>"
-```
-
-## Tests
-
-```bash
-pytest                                              # all tests
-pytest tests/test_policy.py -v                      # single file
-pytest tests/test_policy.py::test_capability_gating -v  # single test
-```
-
-Required test coverage:
-- Policy engine: allow/deny on tool allowlists
-- Egress: deny if host not on allowlist
-- llm.query: deny if model not on allowlist or budget exhausted
-- Auth: 401 without token
+`config.yaml` with `${ENV_VAR}` expansion (resolved in `src/core/config.py`). Secrets go in `.env`. Secure defaults: network egress OFF, empty egress allowlist.
 
 ## Key Design Rules
 
 - Policy engine checks run on **every** tool call — no bypass path
-- All denials include a list of human-readable reasons
+- All denials include human-readable reasons list
 - Network egress is deny-by-default (allowlist empty = no outbound HTTP)
-- LLM budgets (max_tokens_per_request, max_cost_per_day) are tracked per-agent
-- Secrets and PII must be redacted from all log output
-- MCP HTTP responses must never contain log output — logs go through the JSON logger only
-- Provider API key missing → user-friendly error, never crash
+- Core layer (`src/core/`) must never import from `mcp` SDK
+- Logging uses `extra={}` dict — avoid keys that collide with LogRecord builtins (`name`, `message`, `asctime`)
+- `src/transport/app.py` has no module-level app instance; use `get_app()` factory with `--factory` flag
 - Language in code/comments/APIs: English. Requirements doc is in Polish.
