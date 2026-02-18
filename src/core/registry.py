@@ -17,6 +17,7 @@ PLUGIN_MODULES: dict[str, str] = {
     "llm.query": "src.plugins.llm_query.plugin",
     "about.server": "src.plugins.about_server.plugin",
     "about.policies": "src.plugins.about_policies.plugin",
+    "instructions.agent": "src.plugins.instructions_agent.plugin",
     "prompt.review_pr": "src.plugins.prompt_review_pr.plugin",
     "prompt.tool_usage": "src.plugins.prompt_tool_usage.plugin",
 }

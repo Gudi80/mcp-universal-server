@@ -130,9 +130,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     # Create FastMCP instance — streamable_http_path="/" because we mount at /mcp
     # Allow LAN/VPN access by IP — MCP SDK blocks non-localhost by default (DNS rebinding protection)
+    # Build instructions: server.instructions (or fallback to description)
+    server_instructions = config.server.instructions or config.server.description
+
     mcp = FastMCP(
         name=config.server.name,
-        instructions=config.server.description,
+        instructions=server_instructions,
         stateless_http=True,
         streamable_http_path="/",
         host=config.server.host,

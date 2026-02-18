@@ -4,6 +4,10 @@ server:
   name: "mcp-universal-server"
   version: "0.1.0"
   description: "Remote MCP server for multi-agent Claude Code environments"
+  instructions: |
+    You are connected to an MCP server with security policies.
+    Before starting work, read the instructions://agent resource to get your specific guidelines.
+    Always check about://policies to understand your permissions and limits.
 
 enabled_plugins:
   - "core.echo"
@@ -11,6 +15,7 @@ enabled_plugins:
   - "llm.query"
   - "about.server"
   - "about.policies"
+  - "instructions.agent"
   - "prompt.review_pr"
   - "prompt.tool_usage"
 
@@ -18,6 +23,14 @@ agents:
   agent-alpha:
     token: "${AGENT_ALPHA_TOKEN}"
     tenant_id: "team-a"
+    instructions: |
+      You are agent-alpha working on team-a projects.
+      Rules:
+      - Always write Python code with type hints.
+      - Use pytest for testing. Run tests before committing.
+      - Never commit without asking the user first.
+      - Follow PEP 8 style guidelines.
+      - Write docstrings for all public functions.
     allowed_tools:
       - "core.echo"
       - "core.sum"
@@ -33,6 +46,13 @@ agents:
   agent-beta:
     token: "${AGENT_BETA_TOKEN}"
     tenant_id: "team-b"
+    instructions: |
+      You are agent-beta working on team-b projects.
+      Rules:
+      - You have access to LLM query tools. Use them wisely — budget is limited.
+      - Prefer cheaper models (gpt-4o-mini, claude-haiku) for simple tasks.
+      - Always validate external API responses before processing.
+      - Log important decisions and their rationale.
     allowed_tools:
       - "core.echo"
       - "core.sum"

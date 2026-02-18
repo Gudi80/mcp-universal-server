@@ -40,6 +40,7 @@ class LLMConfig(BaseModel):
 class AgentConfig(BaseModel):
     token: str
     tenant_id: str = "default"
+    instructions: str = ""
     allowed_tools: list[str] = Field(default_factory=list)
     allowed_capabilities: list[Capability] = Field(default_factory=list)
     egress_allowlist: list[str] = Field(default_factory=list)
@@ -58,6 +59,7 @@ class ServerConfig(BaseModel):
     name: str = "mcp-universal-server"
     version: str = "0.1.0"
     description: str = "Remote MCP server for multi-agent Claude Code environments"
+    instructions: str = ""
 
 
 class AppConfig(BaseModel):
