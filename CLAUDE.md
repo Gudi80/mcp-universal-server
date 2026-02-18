@@ -23,7 +23,7 @@ Two layers: **core** (`src/core/`) has no MCP SDK imports; **transport** (`src/t
 ### Request Flow
 
 ```
-HTTP POST /mcp (Authorization: Bearer <token>)
+HTTP POST /mcp/ (Authorization: Bearer <token>)
   → BearerAuthMiddleware (src/transport/middleware.py)
     → AuthService.resolve(token) → AgentIdentity
       → contextvars.ContextVar("current_agent").set(identity)
@@ -33,13 +33,19 @@ HTTP POST /mcp (Authorization: Bearer <token>)
 
 Each tool is registered via `_make_tool_wrapper()` in `src/transport/app.py`, which synthesizes an `inspect.Signature` from the plugin's Pydantic `input_model()` so FastMCP generates the correct JSON schema. This wrapper enforces policy before every execution — there is no bypass path.
 
+### MCP SDK Integration Gotchas
+
+- FastMCP is created with `streamable_http_path="/"` and mounted at `/mcp` — this avoids a double `/mcp/mcp` path. The actual endpoint is `/mcp/`.
+- The parent FastAPI app must wire `mcp.session_manager.run()` into its lifespan, otherwise requests fail with "Task group is not initialized". See the `lifespan` context manager in `app.py`.
+- Resources use `FunctionResource` (not `@mcp.resource` decorator) to avoid URI parameter validation errors.
+- Prompts use `Prompt.from_function()` then `mcp.add_prompt(prompt_obj)` — `add_prompt()` takes a `Prompt` object, not a function.
+- MCP responses are SSE (Server-Sent Events). Clients must send `Accept: application/json, text/event-stream`.
+
 ### Plugin System
 
 Plugins implement ABCs from `src/plugins/_base.py` (`ToolPlugin`, `ResourcePlugin`, `PromptPlugin`). Each plugin module exposes a `create_plugin(**kwargs)` factory. Registration requires two steps:
 1. Add module path to `PLUGIN_MODULES` dict in `src/core/registry.py`
 2. Add plugin name to `enabled_plugins` list in `config.yaml`
-
-Resources use `FunctionResource` (not the `@mcp.resource` decorator) to avoid URI parameter validation issues. Prompts use `Prompt.from_function()` then `mcp.add_prompt(prompt_obj)`.
 
 ### Policy Engine (`src/core/policy.py`)
 

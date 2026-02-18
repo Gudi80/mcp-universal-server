@@ -128,12 +128,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     registry = PluginRegistry()
     registry.load(config=config, policy_engine=policy_engine)
 
-    # Create FastMCP instance — streamable_http_path="" because we mount at /mcp
+    # Create FastMCP instance — streamable_http_path="/" because we mount at /mcp
+    # Allow LAN/VPN access by IP — MCP SDK blocks non-localhost by default (DNS rebinding protection)
     mcp = FastMCP(
         name=config.server.name,
         instructions=config.server.description,
         stateless_http=True,
         streamable_http_path="/",
+        host=config.server.host,
+        port=config.server.port,
+    )
+    from mcp.server.transport_security import TransportSecuritySettings
+    mcp.settings.transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
     )
 
     # Register tool plugins as MCP tools via wrappers
