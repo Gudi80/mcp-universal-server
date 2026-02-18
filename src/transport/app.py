@@ -128,11 +128,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     registry = PluginRegistry()
     registry.load(config=config, policy_engine=policy_engine)
 
-    # Create FastMCP instance
+    # Create FastMCP instance — streamable_http_path="" because we mount at /mcp
     mcp = FastMCP(
         name=config.server.name,
         instructions=config.server.description,
         stateless_http=True,
+        streamable_http_path="/",
     )
 
     # Register tool plugins as MCP tools via wrappers
@@ -185,8 +186,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         mcp.add_prompt(prompt_obj)
 
-    # Create FastAPI app
-    app = FastAPI(title=config.server.name, version=config.server.version)
+    # Build the MCP Starlette sub-app (initializes session_manager)
+    mcp_app = mcp.streamable_http_app()
+
+    # Wire lifespan: parent app must start/stop the MCP session manager
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):  # type: ignore[override]
+        async with mcp.session_manager.run():
+            yield
+
+    # Create FastAPI app with MCP lifespan
+    app = FastAPI(
+        title=config.server.name,
+        version=config.server.version,
+        lifespan=lifespan,
+    )
 
     # Add auth middleware
     app.add_middleware(BearerAuthMiddleware, auth_service=auth_service)
@@ -196,8 +212,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    # Mount MCP streamable HTTP app
-    mcp_app = mcp.streamable_http_app()
+    # Mount MCP sub-app at /mcp (streamable_http_path="" avoids double /mcp/mcp)
     app.mount("/mcp", mcp_app)
 
     logger.info(
